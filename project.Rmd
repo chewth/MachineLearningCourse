@@ -1,0 +1,125 @@
+# Coursera Machine Learning Project
+
+### chewth, 17 Feb 2015
+
+## Summary
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+
+## Modeling
+
+
+In order to provide consistent data to construct features, the first task was to sanitize the data.  The following steps where taken:
+
+1.  Remove excel division error strings `#DIV/0!` and replace with `NA` values.
+2.  Convert empty strings to `NA` values.
+3.  Any features that contained NA values were removed.
+
+With a clean data set, the next task was to explore the data and determine what is likely useful information.  An important goal of any model to generalize well with unseen data.  Given this,
+
+```{r cleaning}
+library(caret)
+library(knitr)
+
+set.seed(140819)
+
+# Read in the training and testing data data
+dat.train <- read.csv("./data/pml-training.csv", stringsAsFactors=FALSE)
+dat.test <- read.csv("./data/pml-testing.csv", stringsAsFactors=FALSE)
+
+# Function to filter the features
+# Here, we just remove the features with any missing data
+filterData <- function(idf) {
+  # Since we have lots of variables, remove any with NA's
+  # or have empty strings
+  idx.keep <- !sapply(idf, function(x) any(is.na(x)))
+  idf <- idf[, idx.keep]
+  idx.keep <- !sapply(idf, function(x) any(x==""))
+  idf <- idf[, idx.keep]
+  
+  # Remove the columns that aren't the predictor variables
+  col.rm <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", 
+              "cvtd_timestamp", "new_window", "num_window")
+  idx.rm <- which(colnames(idf) %in% col.rm)
+  idf <- idf[, -idx.rm]
+  
+  return(idf)
+}
+
+# Perform the filtering on the datasets
+# The training data has classe so we need to
+# convert it to a factor for the model building
+dat.train <- filterData(dat.train)
+dat.train$classe <- factor(dat.train$classe)
+
+dat.test <- filterData(dat.test)
+```
+
+## Cross Validation
+
+Cross validation was achieved by splitting the training data into a test set and a training set using the following:
+3 different machine learning algorithms, random forest, SVM (radial), KNN were also used for comparison.
+
+```{r cross_validate}
+
+# Now create some prediction models on the training data
+# Here, we'll use cross validation with trainControl to help optimize
+# the model parameters
+# Here, we'll do 5-fold cross validation
+cvCtrl <- trainControl(method = "cv", number = 5, allowParallel = TRUE, verboseIter = TRUE)
+# We'll make 3 models that use different approaches and use a voting mechanism for the class predictions
+m1 <- train(classe ~ ., data = dat.train, method = "rf", trControl = cvCtrl)
+
+m2 <- train(classe ~ ., data = dat.train, method = "svmRadial", trControl = cvCtrl)
+
+m3 <- train(classe ~ ., data = dat.train, method = "knn", trControl = cvCtrl)
+
+```
+
+Now that we have the 3 models built, let’s investigate the cross-validation performance accuracy on the training data set.
+
+```{r confusion_matrix, echo=F}
+# Make a data frame with the maximum accuracy values from the models obtained
+# via the cross validation on the training data
+acc.tab <- data.frame(Model=c("Random Forest", "SVM (radial)", "KNN"),
+                     Accuracy=c(round(max(head(m1$results)$Accuracy), 3),
+                     round(max(head(m2$results)$Accuracy), 3),
+                     round(max(head(m3$results)$Accuracy), 3)))
+
+
+table(acc.tab)
+
+```
+From the model, Random Forest appears to have the best accuracy.
+
+Next we do prediction on the testing data set. 
+
+```{r predict, echo=F}
+
+# Do the predictions
+test.pred.1 <- predict(m1, dat.test)
+test.pred.2 <- predict(m2, dat.test)
+test.pred.3 <- predict(m3, dat.test)
+```
+
+We do a table to see if all the algorithms agree on the results.
+
+```{r test, echo=F}
+# Make a table and check if they all agree
+pred.df <- data.frame(rf.pred = test.pred.1, svm.pred = test.pred.2, knn.pred = test.pred.3)
+pred.df$agree <- with(pred.df, rf.pred == svm.pred && rf.pred == knn.pred)
+all.agree <- all(pred.df$agree)
+
+colnames(pred.df) <- c("Random Forest", "SVM", "KNN", "All Agree?")
+table(pred.df)
+```
+
+## Conclusion
+
+From the table, we can see that the results agree for all the models. Combined with the high accuracy results from the cross-validation procedure, it appears as though we have good prediction models, especially the random forest algorithm.
+
+
+
+
+
+
